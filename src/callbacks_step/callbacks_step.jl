@@ -60,6 +60,7 @@ end
 #   in a time step loop (however, callbacks are always executed *after* a step, thus it comes near
 #   the end here)
 # * `StepsizeCallback` must come after AMR to accommodate potential changes in the minimum cell size
+#   and after mesh deformation to accommodate the changed geometry
 # * `GlmSpeedCallback` must come after computing time step size because it affects the value of c_h
 # * `LBMCollisionCallback` must come after computing time step size because it is already part of
 #    the next time step calculation
@@ -74,6 +75,7 @@ include("visualization.jl")
 include("averaging.jl")
 
 include("amr.jl")
+include("mesh_deformation.jl")
 include("stepsize.jl")
 include("glm_speed.jl")
 include("lbm_collision.jl")

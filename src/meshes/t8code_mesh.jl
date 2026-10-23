@@ -310,9 +310,7 @@ function T8codeMesh{NDIMS, RealT}(forest::Ptr{t8_forest}, boundary_names; polyde
                                                     ntuple(_ -> length(nodes), NDIMS)...,
                                                     number_of_trees)
 
-    reference_coordinates = Vector{RealT}(undef, 3)
-
-    # Calculate node coordinates of reference mesh.
+    # Test for negative element volumes.
     if NDIMS == 2
         number_of_corners = 4 # quadrilateral
 
@@ -341,15 +339,6 @@ function T8codeMesh{NDIMS, RealT}(forest::Ptr{t8_forest}, boundary_names; polyde
                 if vol < z
                     error("Discovered negative volumes in `cmesh`: vol = $vol")
                 end
-            end
-
-            # Query geometry data from t8code.
-            for j in eachindex(nodes), i in eachindex(nodes)
-                reference_coordinates[1] = nodes[i]
-                reference_coordinates[2] = nodes[j]
-                reference_coordinates[3] = 0.0
-                t8_geometry_evaluate(cmesh, itree - 1, reference_coordinates, 1,
-                                     @view(tree_node_coordinates[:, i, j, itree]))
             end
         end
 
@@ -383,25 +372,64 @@ function T8codeMesh{NDIMS, RealT}(forest::Ptr{t8_forest}, boundary_names; polyde
                     error("Discovered negative volumes in `cmesh`: vol = $vol")
                 end
             end
-
-            # Query geometry data from t8code.
-            for k in eachindex(nodes), j in eachindex(nodes), i in eachindex(nodes)
-                reference_coordinates[1] = nodes[i]
-                reference_coordinates[2] = nodes[j]
-                reference_coordinates[3] = nodes[k]
-                t8_geometry_evaluate(cmesh, itree - 1, reference_coordinates, 1,
-                                     @view(tree_node_coordinates[:, i, j, k, itree]))
-            end
         end
     else
         throw(ArgumentError("$NDIMS dimensions are not supported."))
     end
+
+    # Query geometry data from t8code.
+    calc_tree_node_coordinates!(tree_node_coordinates, cmesh, nodes)
 
     # Apply user defined mapping.
     map_node_coordinates!(tree_node_coordinates, mapping)
 
     return T8codeMesh{NDIMS}(forest, tree_node_coordinates, basis.nodes,
                              boundary_names, "", partition_allow_for_coarsening)
+end
+
+# Evaluate the t8code geometry of all trees of `cmesh` at the tensor-product `nodes`
+# (given in the t8code reference space [0, 1]) and store the result in
+# `tree_node_coordinates`. This is also used to update the geometry after the
+# `cmesh` has been deformed, see `MeshDeformationCallback`.
+function calc_tree_node_coordinates!(tree_node_coordinates::AbstractArray{<:Any, 4},
+                                     cmesh, nodes)
+    # `t8_geometry_evaluate` always returns three coordinates.
+    reference_coordinates = zeros(Cdouble, 3)
+    global_coordinates = zeros(Cdouble, 3)
+
+    for itree in axes(tree_node_coordinates, 4)
+        for j in eachindex(nodes), i in eachindex(nodes)
+            reference_coordinates[1] = nodes[i]
+            reference_coordinates[2] = nodes[j]
+            t8_geometry_evaluate(cmesh, itree - 1, reference_coordinates, 1,
+                                 global_coordinates)
+            tree_node_coordinates[1, i, j, itree] = global_coordinates[1]
+            tree_node_coordinates[2, i, j, itree] = global_coordinates[2]
+        end
+    end
+
+    return nothing
+end
+
+function calc_tree_node_coordinates!(tree_node_coordinates::AbstractArray{<:Any, 5},
+                                     cmesh, nodes)
+    reference_coordinates = zeros(Cdouble, 3)
+    global_coordinates = zeros(Cdouble, 3)
+
+    for itree in axes(tree_node_coordinates, 5)
+        for k in eachindex(nodes), j in eachindex(nodes), i in eachindex(nodes)
+            reference_coordinates[1] = nodes[i]
+            reference_coordinates[2] = nodes[j]
+            reference_coordinates[3] = nodes[k]
+            t8_geometry_evaluate(cmesh, itree - 1, reference_coordinates, 1,
+                                 global_coordinates)
+            for d in 1:3
+                tree_node_coordinates[d, i, j, k, itree] = global_coordinates[d]
+            end
+        end
+    end
+
+    return nothing
 end
 
 """
